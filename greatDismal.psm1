@@ -62,7 +62,7 @@ function get-picFortheDay {
     [string]$logfile,
     [bool]$nolog
     )
-    Write-Host "getting some fresh depair for you"
+    Write-Host "getting some fresh despair for you"
     
     $key = "48efbaf66f9bf4b1bf2d0b04c46b02b1"
     $scrt = "9f5ab5c8abc77684"
@@ -74,7 +74,8 @@ function get-picFortheDay {
         "crumbling", "decaying", "rotting",
         "ruined", "brutalist", "gloomy", 
         "dreary", "trashed", "dumped", 
-        "stained", "desolate", "miserable"
+        "stained", "desolate", "miserable",
+        "muddy", "shattered"
         );
     }
     if ($nouns.Length -eq 0){
@@ -89,7 +90,7 @@ function get-picFortheDay {
         "vomit", "grave", "tower", 
         "concrete", "rubble", "field", 
         "paddock", "road", "town", "bin", 
-        "puddle", "spill", "despair"
+        "puddle", "spill", "despair", "mud"
         );
     }
     $attempts = 0;
@@ -202,7 +203,7 @@ function install-GD {
         Write-Host "unsafe for work." -ForegroundColor DarkYellow -BackgroundColor DarkRed
         write-host ($divider) -foregroundColor "yellow"
         # if the script is not in the usual directory, copy it there
-        $installDir = (join-path ($env:PSModulePath)[0] "GreatDismal")
+        $installDir = (join-path (($env:PSModulePath).split(";"))[0] "GreatDismal")
         if (! ((split-path -parent $ScriptPath) -eq $installDir)){
             Write-Host $installDir;
             if (!(test-path $installDir)){mkdir $installDir}
@@ -210,7 +211,8 @@ function install-GD {
             Copy-Item $scriptPath $installPath;
             $scriptPath = $installPath;
         }
-        
+        Write-Host ("scriptpath {0}, InstallDir {1}" -f $scriptPath, $installDir)
+
         # define the workstation unlock as the trigger
         $stateChangeTrigger = Get-CimClass -Namespace ROOT\Microsoft\Windows\TaskScheduler -ClassName MSFT_TaskSessionStateChangeTrigger
         $trigger = New-CimInstance -CimClass $stateChangeTrigger -Property @{
@@ -218,15 +220,15 @@ function install-GD {
         } -ClientOnly
         
         # Create a task scheduler event
-        $argument = "-WindowStyle Hidden -command `"& '{0}'{1}`"" -f (join-path $scriptPath "greatDismal.ps1"), $(if ($phoneHome){" -checkForUpdates"} else {""});
-        $action = New-ScheduledTaskAction -id "GreatDismal" -execute 'Powershell.exe' -Argument $argument
+        $argument = "-WindowStyle Hidden -command `"import-module 'GreatDismal'; GreatDismal {0}`"" -f $(if ($phoneHome){" -checkForUpdates"} else {""});
+        $action = New-ScheduledTaskAction -id "GreatDismal" -execute 'Powershell.exe' -Argument $argument;
         $settings = New-ScheduledTaskSettingsSet -Hidden -StartWhenAvailable -RunOnlyIfNetworkAvailable
         Write-Host "for this script to work it needs elevated privileges" -BackgroundColor DarkBlue
         $Credential = Test-Credential
         if ($Credential){
             # actually install the shiz
             Write-Host "Username checks out." -ForegroundColor Green
-            log "Unregistering existing scheduled task"
+            log "Unregistering existing scheduled task" -logfile $logfile -nolog $nolog
             Unregister-ScheduledTask -TaskName "greatDismal" -ErrorAction SilentlyContinue
             Register-ScheduledTask `
             -TaskName "greatDismal" `
@@ -275,7 +277,7 @@ function Test-Credential {
     $DS = New-Object System.DirectoryServices.AccountManagement.PrincipalContext('machine',$env:COMPUTERNAME)
     
     while ((! $usernameChecksOut) -and $againWithThePassword){
-        $Credential = Get-Credential
+        $Credential = Get-Credential -ErrorAction SilentlyContinue
         if ($null -eq $Credential){
             Write-Warning "You didn't give me any Credentials. I can't help you if you won't help me."
             $againWithThePassword = ((read-host "Again with the password? Y/n").ToLower() -ne "n")
@@ -308,8 +310,12 @@ function log {
         if (! (test-path $logfile )){set-content $logfile "The Great Dismal Log"}
         if ((get-item $logfile).length -gt 64kb){
             $oldlog = (Get-Content $logfile)[-20..-1]
+            $lastUpdate = ""
+            (Get-Content $logfile)|Where-Object{$_ -match "([^-]*)->\s*UpdateCheck"}|ForEach-Object{$lastUpdate = $Matches[0]}
+
             Set-Content $logfile ("The Great Dismal Log`n" + $date + "-> " + "Trimmed log")
             Add-Content $logfile $oldlog
+            Add-Content $logfile $lastUpdate
         }
         add-content $logfile ("" + $date + "-> " + $msg)
     }
