@@ -17,7 +17,7 @@ function greatDismal{
     $lastUpdate = $false;
     $shouldUpdate = $false;
     if (test-path $logfile){
-        (Get-Content $logfile)|Where-Object{$_ -match "([^-]*)->\s*UpdateCheck"}|ForEach-Object{$lastUpdate = $Matches[1]}
+        $lastUpdate = (Get-Content $logfile) | Where-Object {$_ -match "([^-]*)->\s*UpdateCheck"}
         if ($lastUpdate){
             # check every week, future versions might slow this down a bit
             $shouldUpdate = (get-date $Matches[1]) -lt ((get-date).AddDays(-7))
@@ -308,11 +308,14 @@ function log {
     if ((-not $nolog) -and ($null -ne $logfile)){
         $date = Get-date -f "dd/MM/yyyy HH:mm:ss"
         if (! (test-path $logfile )){set-content $logfile "The Great Dismal Log"}
+        # trim the log if it gets too long 64k is long enough right?
         if ((get-item $logfile).length -gt 64kb){
-            $oldlog = (Get-Content $logfile)[-20..-1]
+            # get the last 20 lines
+            $oldlog = (Get-Content $logfile)[-20..-1] 
+            # carry over the last update check
             $lastUpdate = ""
-            (Get-Content $logfile)|Where-Object{$_ -match "([^-]*)->\s*UpdateCheck"}|ForEach-Object{$lastUpdate = $Matches[0]}
-
+            $lastUpdate = (Get-Content $logfile) | Where-Object {$_ -match "([^-]*)->\s*UpdateCheck"}
+            if ($lastUpdate){$lastUpdate = $lastUpdate[-1]}
             Set-Content $logfile ("The Great Dismal Log`n" + $date + "-> " + "Trimmed log")
             Add-Content $logfile $oldlog
             Add-Content $logfile $lastUpdate
