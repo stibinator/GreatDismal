@@ -1,4 +1,4 @@
-function greatDismal{
+function get-DismalLockscreen{
     param (
     [string[]]$adjectives = @(),
     [string[]]$nouns = @(),
@@ -26,7 +26,8 @@ function greatDismal{
         }
     } 
     if ($shouldUpdate) {
-        checkForUpdates -version $thisVersion -logfile $logfile;
+        write-GDLog "updating GD" -logfile $logfile
+        get-greatDismalUpdates -version $thisVersion -logfile $logfile;
     }
 
     # do the stuffs
@@ -35,7 +36,7 @@ function greatDismal{
     $dismalPic = Join-Path $dismalFolder "greatDismal.jpg"
     
     if ($install){ 
-        install-GD -scriptPath $scriptPath -logfile $logfile -nolog $nolog
+        install-GreatDismal -scriptPath $scriptPath -logfile $logfile -nolog $nolog
     } 
     
     if ($showpic) {
@@ -49,11 +50,11 @@ function greatDismal{
         uninstall -logfile $logfile -dismalFolder $dismalFolder -scriptPath (join-path $scriptPath  "greatDismal.ps1");
     }else {
         #get the pic and set the screen
-        get-picFortheDay -logFile $logfile -nolog $nolog -dismalPic $dismalPic -scriptPath $scriptPath;
+        get-dismalpicFortheDay -logFile $logfile -nolog $nolog -dismalPic $dismalPic -scriptPath $scriptPath;
     }
 }
 
-function get-picFortheDay {
+function get-dismalpicFortheDay {
     param (
     [string[]]$adjectives = @(),
     [string[]]$nouns = @(),
@@ -99,7 +100,7 @@ function get-picFortheDay {
         $result = Invoke-RestMethod -URi  ("http://api.flickr.com/services/rest/?method=flickr.photos.search&api_key={0}&secret={1}&tags={2}&tag_mode=all&sort=interestingness-desc&media=photos&format=rest&extras=url_k" -f $key, $scrt, $picfortheday) -Method Get
         $pics = $result.rsp.photos.photo;
         if ($pics.length -gt 0){
-            log ("looking for pics of {0}, found {1}" -f ($picfortheday.replace(",", " and ")),  $pics.length) -logFile $logfile -nolog $nolog
+            write-GDLog ("looking for pics of {0}, found {1}" -f ($picfortheday.replace(",", " and ")),  $pics.length) -logFile $logfile -nolog $nolog
             $randompics = 0;
             while (($null -eq $photogURL) -and ($randompics -lt $pics.length) ){
                 $randoPhoto = Get-Random $pics.Length;
@@ -107,28 +108,28 @@ function get-picFortheDay {
                 $randompics++
             }
             if ($null -ne $photogURL){
-                log ("found a photo at {0}" -f $photogURL) -logFile $logfile -nolog $nolog
+                write-GDLog ("found a photo at {0}" -f $photogURL) -logFile $logfile -nolog $nolog
             } else {
-                log ("no url found. Trying another search") -logFile $logfile -nolog $nolog
+                write-GDLog ("no url found. Trying another search") -logFile $logfile -nolog $nolog
             }
             $photoTitle = $pics[$randoPhoto].title;
         } else {
-            log ("{0} - didn't find any pics of {1}" -f (get-date), ($picfortheday.replace(",",  " and "))) -logFile $logfile -nolog $nolog
+            write-GDLog ("{0} - didn't find any pics of {1}" -f (get-date), ($picfortheday.replace(",",  " and "))) -logFile $logfile -nolog $nolog
         }
         $attempts++;
     }
     (New-Object Net.webclient).DownloadFile($photogURL, $dismalPic)
-    log ("downloaded `"{0}`"" -f $photoTitle) -logFile $logfile -nolog $nolog
+    write-GDLog ("downloaded `"{0}`"" -f $photoTitle) -logFile $logfile -nolog $nolog
     
     Set-LockscreenWallpaper -LockScreenImageValue $dismalPic -logfile $logfile;
 }
 
-function checkForUpdates {
+function get-greatDismalUpdates {
     param(
         [string]$Version,
         [string]$logfile
     )
-    log -msg "UpdateCheck" -logfile $logfile
+    write-GDLog -msg "UpdateCheck" -logfile $logfile
     $thisVersion = $Version.split(".");
     $url = "http://www.pureandapplied.com.au/greatdismalcurrentversion";
     $wc = New-Object System.Net.WebClient;
@@ -181,21 +182,19 @@ function Set-LockscreenWallpaper {
             New-ItemProperty -Path $RegKeyPath -Name $LockScreenUrl -Value $LockScreenImageValue -PropertyType STRING -Force | Out-Null
         }
     } else {
-        log ("Error: not running as Admin, can't set the registry.") -logFile $logfile -nolog $nolog
+        write-GDLog ("Error: not running as Admin, can't set the registry.") -logFile $logfile -nolog $nolog
     }
 }
 
-function install-GD {
+function install-GreatDismal {
     param(
-    [String]$logfile,
+    [String]$logfile = (join-path $env:APPDATA "\great dismal\log.txt"),
     [bool]$nolog,
     [bool]$phoneHome
     )
     # check to see if user is admin
     if (([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")){
         # is admin, we're good to install
-        $scriptPath =  $MyInvocation.ScriptName
-        $scriptName = (Get-Item $scriptPath).name;
         $divider = "`n" + ("-" * (Get-Host).ui.rawui.windowsize.width) + "`n"; # trick to make a row of dashes the width of the window
         write-host ($divider) -foregroundColor "yellow"
         Write-Host "This will install GreatDismal on your machine and it will download a random dismal login screen every time you log in" -ForegroundColor DarkYellow
@@ -203,15 +202,6 @@ function install-GD {
         Write-Host "unsafe for work." -ForegroundColor DarkYellow -BackgroundColor DarkRed
         write-host ($divider) -foregroundColor "yellow"
         # if the script is not in the usual directory, copy it there
-        $installDir = (join-path (($env:PSModulePath).split(";"))[0] "GreatDismal")
-        if (! ((split-path -parent $ScriptPath) -eq $installDir)){
-            Write-Host $installDir;
-            if (!(test-path $installDir)){mkdir $installDir}
-            $installPath = join-path $installDir $scriptName;
-            Copy-Item $scriptPath $installPath;
-            $scriptPath = $installPath;
-        }
-        Write-Host ("scriptpath {0}, InstallDir {1}" -f $scriptPath, $installDir)
 
         # define the workstation unlock as the trigger
         $stateChangeTrigger = Get-CimClass -Namespace ROOT\Microsoft\Windows\TaskScheduler -ClassName MSFT_TaskSessionStateChangeTrigger
@@ -220,7 +210,7 @@ function install-GD {
         } -ClientOnly
         
         # Create a task scheduler event
-        $argument = "-WindowStyle Hidden -command `"import-module 'GreatDismal'; GreatDismal {0}`"" -f $(if ($phoneHome){" -checkForUpdates"} else {""});
+        $argument = "-WindowStyle Hidden -command `"import-module 'GreatDismal'; get-DismalLockscreen {0}`"" -f $(if ($phoneHome){" -checkForUpdates"} else {""});
         $action = New-ScheduledTaskAction -id "GreatDismal" -execute 'Powershell.exe' -Argument $argument;
         $settings = New-ScheduledTaskSettingsSet -Hidden -StartWhenAvailable -RunOnlyIfNetworkAvailable
         Write-Host "for this script to work it needs elevated privileges" -BackgroundColor DarkBlue
@@ -228,7 +218,7 @@ function install-GD {
         if ($Credential){
             # actually install the shiz
             Write-Host "Username checks out." -ForegroundColor Green
-            log "Unregistering existing scheduled task" -logfile $logfile -nolog $nolog
+            write-GDLog "Unregistering existing scheduled task" -logfile $logfile -nolog $nolog
             Unregister-ScheduledTask -TaskName "greatDismal" -ErrorAction SilentlyContinue
             Register-ScheduledTask `
             -TaskName "greatDismal" `
@@ -240,7 +230,7 @@ function install-GD {
             -taskPath "\pureandapplied\"
         }
         if ($? -and (Get-ScheduledTask -TaskName "GreatDismal" -ErrorAction SilentlyContinue)){
-            log "GreatDismal is installed" -colour "Green" -logFile $logfile -nolog $nolog
+            write-GDLog "GreatDismal is installed" -colour "Green" -logFile $logfile -nolog $nolog
         } else {
             throw "Bollocks. Something went wrong. Computers suck."
         }
@@ -251,7 +241,7 @@ function install-GD {
     }
 }
 
-function uninstall {
+function uninstall-GreatDismal {
     param(
     [string]$logfile,
     [string]$dismalFolder
@@ -297,7 +287,7 @@ function Test-Credential {
     }
 }
 
-function log {
+function write-GDLog  {
     param (
     [string]$Msg,
     [string]$colour = "White",
