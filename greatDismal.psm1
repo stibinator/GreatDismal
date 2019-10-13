@@ -62,7 +62,7 @@ function get-dismalpicFortheDay {
     [string]$dismalPic,
     [string]$logfile,
     [bool]$nolog,
-    [int]$safeSearch
+    [int]$safeSearch = 0
     )
     Write-Host "getting some fresh despair for you"
     
@@ -97,13 +97,14 @@ function get-dismalpicFortheDay {
     }
     $attempts = 0;
     if ($safeSearch -gt 0){
-        $safeSearch = "&safe_search="+$safeSearch
+        $safeSearchStr = "&safe_search="+$safeSearch
     } else {
-        $safeSearch = ""
+        $safeSearchStr = ""
     }
+
     while ((! $photogURL) -and ($attempts -lt 64)){
         $picfortheday = @($adjectives[(Get-Random($adjectives.Length))], $nouns[(Get-Random($nouns.Length))]) -join ",";
-        $result = Invoke-RestMethod -URi  ("http://api.flickr.com/services/rest/?method=flickr.photos.search&api_key={0}&secret={1}&tags={2}&tag_mode=all&sort=interestingness-desc&media=photos&format=rest&extras=url_k{3}" -f $key, $scrt, $picfortheday, $safeSearch) -Method Get
+        $result = Invoke-RestMethod -URi  ("http://api.flickr.com/services/rest/?method=flickr.photos.search&api_key={0}&secret={1}&tags={2}&tag_mode=all&sort=interestingness-desc&media=photos&format=rest&extras=url_k{3}" -f $key, $scrt, $picfortheday, $safeSearchStr) -Method Get
         $pics = $result.rsp.photos.photo;
         if ($pics.length -gt 0){
             write-GDLog ("looking for pics of {0}, found {1}" -f ($picfortheday.replace(",", " and ")),  $pics.length) -logFile $logfile -nolog $nolog
