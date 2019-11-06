@@ -4,9 +4,10 @@ function get-DismalLockscreen{
     [string[]]$nouns = @(),
     [string]$dismalFolder = (join-path $env:APPDATA "\great dismal\"),
     [string]$logfile = (join-path $dismalFolder "log.txt"),
-    [int]$safeSearch = 0,
+    [string]$userString = "getting some fresh despair for you",
     [switch]$showpic,
     [switch]$showLog,
+    [switch]$showPage,
     [switch]$noLog,
     [switch]$install,
     [switch]$uninstall,
@@ -14,30 +15,14 @@ function get-DismalLockscreen{
     )
     
     write-host "logfile at $logfile"
-    $thisVersion = "0.1.0";
-    $lastUpdate = $false;
-    $shouldUpdate = $false;
-    if (test-path $logfile){
-        $lastUpdate = (Get-Content $logfile) | Where-Object {$_ -match "([^-]*)->\s*UpdateCheck"}
-        if ($lastUpdate){
-            # check every week, future versions might slow this down a bit
-            $shouldUpdate = (get-date $Matches[1]) -lt ((get-date).AddDays(-7))
-        } else {
-            $shouldUpdate = $true;
-        }
-    } 
-    if ($shouldUpdate) {
-        write-GDLog "updating GD" -logfile $logfile
-        get-greatDismalUpdates -version $thisVersion -logfile $logfile;
-    }
-
+    
     # do the stuffs
     # installation hoo-hah
     if (! (test-path $dismalFolder)){mkdir $dismalFolder}
     $dismalPic = Join-Path $dismalFolder "greatDismal.jpg"
     
     if ($install){ 
-        install-GreatDismal -adjectives $adjectives -nouns $nouns -dismalFolder $dismalFolder -scriptPath $scriptPath -logfile $logfile -nolog $nolog -safeSearch = $safeSearch
+        install-GreatDismal -scriptPath $scriptPath -logfile $logfile -nolog $nolog
     } 
     
     if ($showpic) {
@@ -46,12 +31,18 @@ function get-DismalLockscreen{
     } elseif ($showLog){
         #user wants to see the log
         Get-Content $logfile
+    } elseif ($showPage){
+        #user wants to see the page for the last image
+        Get-Content $logfile| Where-Object {
+            $_ -match "-> Image Page: (https://www.flickr.com/photos/.*)$"
+        }|Select-Object -Last 1
+        Start-Process $Matches[1]
     } elseif ($uninstall){
-        #user wants to see the log
-        uninstall-GreatDismal -logfile $logfile -dismalFolder $dismalFolder;
+        #user wants to remove the scheduled task
+        uninstall -logfile $logfile -dismalFolder $dismalFolder -scriptPath (join-path $scriptPath  "greatDismal.ps1")
     }else {
         #get the pic and set the screen
-        get-dismalpicFortheDay -logFile $logfile -nolog $nolog -dismalPic $dismalPic -safeSearch $safeSearch;
+        get-dismalpicFortheDay -logFile $logfile -nolog $nolog -dismalPic $dismalPic -scriptPath $scriptPath -userString $userString
     }
 }
 
@@ -60,11 +51,12 @@ function get-dismalpicFortheDay {
     [string[]]$adjectives = @(),
     [string[]]$nouns = @(),
     [string]$dismalPic,
+    [string]$scriptPath,
     [string]$logfile,
-    [bool]$nolog,
-    [int]$safeSearch = 0
+    [string]$userString,
+    [bool]$nolog
     )
-    Write-Host "getting some fresh despair for you"
+    Write-Host $userString
     
     $key = "48efbaf66f9bf4b1bf2d0b04c46b02b1"
     $scrt = "9f5ab5c8abc77684"
@@ -78,7 +70,7 @@ function get-dismalpicFortheDay {
         "dreary", "trashed", "dumped", 
         "stained", "desolate", "miserable",
         "muddy", "shattered"
-        );
+        )
     }
     if ($nouns.Length -eq 0){
         $nouns=@(
@@ -93,25 +85,19 @@ function get-dismalpicFortheDay {
         "concrete", "rubble", "field", 
         "paddock", "road", "town", "bin", 
         "puddle", "spill", "despair", "mud"
-        );
+        )
     }
-    $attempts = 0;
-    if ($safeSearch -gt 0){
-        $safeSearchStr = "&safe_search="+$safeSearch
-    } else {
-        $safeSearchStr = ""
-    }
-
+    $attempts = 0
     while ((! $photogURL) -and ($attempts -lt 64)){
-        $picfortheday = @($adjectives[(Get-Random($adjectives.Length))], $nouns[(Get-Random($nouns.Length))]) -join ",";
-        $result = Invoke-RestMethod -URi  ("http://api.flickr.com/services/rest/?method=flickr.photos.search&api_key={0}&secret={1}&tags={2}&tag_mode=all&sort=interestingness-desc&media=photos&format=rest&extras=url_k{3}" -f $key, $scrt, $picfortheday, $safeSearchStr) -Method Get
-        $pics = $result.rsp.photos.photo;
+        $picfortheday = @($adjectives[(Get-Random($adjectives.Length))], $nouns[(Get-Random($nouns.Length))]) -join ","
+        $result = Invoke-RestMethod -URi  ("http://api.flickr.com/services/rest/?method=flickr.photos.search&api_key={0}&secret={1}&tags={2}&tag_mode=all&sort=interestingness-desc&media=photos&format=rest&extras=url_k" -f $key, $scrt, $picfortheday) -Method Get
+        $pics = $result.rsp.photos.photo
         if ($pics.length -gt 0){
             write-GDLog ("looking for pics of {0}, found {1}" -f ($picfortheday.replace(",", " and ")),  $pics.length) -logFile $logfile -nolog $nolog
-            $randompics = 0;
+            $randompics = 0
             while (($null -eq $photogURL) -and ($randompics -lt $pics.length) ){
-                $randoPhoto = Get-Random $pics.Length;
-                $photogURL = $pics[$randoPhoto].url_k;
+                $randoPhoto = Get-Random $pics.Length
+                $photogURL = $pics[$randoPhoto].url_k
                 $randompics++
             }
             if ($null -ne $photogURL){
@@ -119,36 +105,22 @@ function get-dismalpicFortheDay {
             } else {
                 write-GDLog ("no url found. Trying another search") -logFile $logfile -nolog $nolog
             }
-            $photoTitle = $pics[$randoPhoto].title;
+            $photogID = $pics[$randoPhoto].id
+            $photoTitle = $pics[$randoPhoto].title
+            $info = Invoke-RestMethod -URi  ("http://api.flickr.com/services/rest/?method=flickr.photos.getInfo&photo_id={0}&api_key={1}" -f $photogID, $key) -Method Get
+            
         } else {
             write-GDLog ("{0} - didn't find any pics of {1}" -f (get-date), ($picfortheday.replace(",",  " and "))) -logFile $logfile -nolog $nolog
         }
-        $attempts++;
+        $attempts++
     }
     (New-Object Net.webclient).DownloadFile($photogURL, $dismalPic)
     write-GDLog ("downloaded `"{0}`"" -f $photoTitle) -logFile $logfile -nolog $nolog
+    write-GDLog ("Image page: {0}" -f $info.rsp.photo.urls.url.ChildNodes[0].value) -logFile $logfile -nolog $nolog
     
-    Set-LockscreenWallpaper -LockScreenImageValue $dismalPic -logfile $logfile;
+    Set-LockscreenWallpaper -LockScreenImageValue $dismalPic -logfile $logfile
 }
 
-function get-greatDismalUpdates {
-    param(
-        [string]$Version,
-        [string]$logfile
-    )
-    write-GDLog -msg "UpdateCheck" -logfile $logfile
-    $thisVersion = $Version.split(".");
-    $url = "http://www.pureandapplied.com.au/greatdismalcurrentversion";
-    $wc = New-Object System.Net.WebClient;
-    $currentRelease = ($wc.DownloadString($url)).split(".");
-    Write-Host ("current release {0}.{1}, This Version {2}.{3}" -f $currentRelease[0], $currentRelease[1], $thisVersion[0], $thisVersion[1])
-    if (($currentRelease[0] -gt $thisVersion[0]) -or ($currentRelease[1] -gt $thisVersion[1])){
-        # install the new version
-        $newVersion = ("{0}_{1}.psm1" -f $url, $currentRelease)
-        $newScript = $wc.DownloadFile($newVersion, $env:TEMP);
-        Move-Item $newScript $MyInvocation.ScriptName
-    }
-}
 function Set-LockscreenWallpaper {
     # this was adapted from
     # https://abcdeployment.wordpress.com/2017/04/20/how-to-set-custom-backgrounds-for-desktop-and-lockscreen-in-windows-10-creators-update-v1703-with-powershell/
@@ -196,10 +168,6 @@ function Set-LockscreenWallpaper {
 function install-GreatDismal {
     param(
     [String]$logfile = (join-path $env:APPDATA "\great dismal\log.txt"),
-    [string]$dismalFolder = (join-path $env:APPDATA "\great dismal\"),
-    [int]$safeSearch = 0,
-    [string[]]$adjectives = @(),
-    [string[]]$nouns = @(),
     [bool]$nolog,
     [bool]$phoneHome
     )
@@ -212,7 +180,8 @@ function install-GreatDismal {
         Write-Host "Note that the contents of the pictures are beyond the control of the developer, and may be " -NoNewline -ForegroundColor DarkYellow
         Write-Host "unsafe for work." -ForegroundColor DarkYellow -BackgroundColor DarkRed
         write-host ($divider) -foregroundColor "yellow"
-
+        # if the script is not in the usual directory, copy it there
+        
         # define the workstation unlock as the trigger
         $stateChangeTrigger = Get-CimClass -Namespace ROOT\Microsoft\Windows\TaskScheduler -ClassName MSFT_TaskSessionStateChangeTrigger
         $trigger = New-CimInstance -CimClass $stateChangeTrigger -Property @{
@@ -220,13 +189,7 @@ function install-GreatDismal {
         } -ClientOnly
         
         # Create a task scheduler event
-        $argument = "-WindowStyle Hidden -command `"import-module 'GreatDismal'; get-DismalLockscreen -logfile {0} -dismalFolder {1}{2}{3}{4}{5}`"" -f `
-            $logfile, `
-            $dismalFolder, `
-            $(if ($adjectives.Length -gt 0){" -adjectives ({0})" -f ($adjectives -join ", ")} else {""}), `
-            $(if ($nouns.Length -gt 0){" -nouns ({0})" -f ($nouns -join ", ")} else {""}), `
-            $(if ($phoneHome){" -checkForUpdates"} else {""}), `
-            $(if ($safeSearch -gt 0){" -safeSearch " + $safeSearch} else {""})
+        $argument = "-WindowStyle Hidden -command `"get-DismalLockscreen`""
         $action = New-ScheduledTaskAction -id "GreatDismal" -execute 'Powershell.exe' -Argument $argument
         $settings = New-ScheduledTaskSettingsSet -Hidden -StartWhenAvailable -RunOnlyIfNetworkAvailable
         Write-Host "for this script to work it needs elevated privileges" -BackgroundColor DarkBlue
@@ -234,7 +197,7 @@ function install-GreatDismal {
         if ($Credential){
             # actually install the shiz
             Write-Host "Username checks out." -ForegroundColor Green
-            write-GDLog "Unregistering existing scheduled task" -logfile $logfile -nolog $nolog
+            write-GDLog "Unregistering existing scheduled task`nIf it asks if you are sure, type Y or just hit return.`nTrust me, you're sure, you really are." -logfile $logfile -nolog $nolog
             Unregister-ScheduledTask -TaskName "greatDismal" -ErrorAction SilentlyContinue
             Register-ScheduledTask `
             -TaskName "greatDismal" `
@@ -264,16 +227,11 @@ function uninstall-GreatDismal {
     )
     if (([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")){
         $RegKeyPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP"
-        remove-item -Path $RegKeyPath -Force -Recurse| Out-Null;
-        Unregister-ScheduledTask -TaskName "greatDismal" -ErrorAction SilentlyContinue;
-        Remove-Item  $dismalFolder -Recurse -ErrorAction SilentlyContinue;
-        $scriptPath = (get-item $myInvocation.ScriptName).Directory
-        # remove-module doesn't seem to work for psgallery modules. So we do it manually
-        # just check that we're actually removing the greatdismal folder
-        if ($scriptPath.name -eq "GreatDismal"){
-            Write-host "You have to manually remove the module now. Just delete the GreatDismal folder." -BackgroundColor Yellow -ForegroundColor Red
-            Invoke-Item $scriptPath; #open the folder containing the module folder (usually ~\Documents\WindowsPowershell\Modules)
-        }
+        remove-item -Path $RegKeyPath -Force -Recurse| Out-Null
+        Unregister-ScheduledTask -TaskName "greatDismal"
+        Remove-Item  $dismalFolder -Recurse
+        $scriptPath = $MyInvocation.ScriptName
+        Remove-item $scriptPath
     } else {
         Write-host "you need to run this script as admin to uninstall it" -BackgroundColor Red -ForegroundColor Yellow
         throw "Computer says no."
@@ -282,22 +240,22 @@ function uninstall-GreatDismal {
 }
 function Test-Credential {
     # check password, allowing multiple attemps
-    $againWithThePassword = $true;
-    $usernameChecksOut = $false;
+    $againWithThePassword = $true
+    $usernameChecksOut = $false
     Add-Type -AssemblyName System.DirectoryServices.AccountManagement
     $DS = New-Object System.DirectoryServices.AccountManagement.PrincipalContext('machine',$env:COMPUTERNAME)
     
     while ((! $usernameChecksOut) -and $againWithThePassword){
         $Credential = Get-Credential -ErrorAction SilentlyContinue
         if ($null -eq $Credential){
-            Write-Warning "You didn't give me any credentials. I can't help you if you won't help me."
+            Write-Warning "You didn't give me any Credentials. I can't help you if you won't help me."
             $againWithThePassword = ((read-host "Again with the password? Y/n").ToLower() -ne "n")
         } else {
             $usernameChecksOut = $DS.ValidateCredentials($Credential.UserName, $Credential.GetNetworkCredential().Password)
             if ($usernameChecksOut){
                 return $Credential
             } else {
-                Write-Warning "Username and / or password is incorrect. Soz.";
+                Write-Warning "Username and / or password is incorrect. Soz."
                 $againWithThePassword = ((read-host "Again with the password? Y/n").ToLower() -eq "n")
             }
         }
@@ -315,8 +273,8 @@ function write-GDLog  {
     [string]$logfile, 
     [bool]$nolog
     )
-
-    if ((-not $nolog) -and ($null -ne $logfile)){
+    
+    if ((-not $nolog) -and ($logfile)){
         $date = Get-date -f "dd/MM/yyyy HH:mm:ss"
         if (! (test-path $logfile )){set-content $logfile "The Great Dismal Log"}
         # trim the log if it gets too long 64k is long enough right?
